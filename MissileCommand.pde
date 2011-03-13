@@ -1,16 +1,28 @@
 #include <TVout.h>
 #include <fontALL.h>
 #include <avr/pgmspace.h>
+#include <i2cmaster.h>
+#include <nunchuck.h>
+
+
 
 TVout tv;
+Nunchuck n;
 
 #define TVMODE PAL    // Set to either PAL or NTSC
 
 #define MAX_X 128
 #define MAX_Y 96
 
+// The heights of the buildings that make up a city
 uint8_t building[]={2,3,5,2,4,2,4,3,2,3,2,1};
-uint8_t citypos[] = {3, 3+18*1, 3+18*2, 3+18*3, 3+18*4, 3+18*5, 3+18*6};
+
+// The locations of the cities [0,1,2,4,5,6] and the missile base [3] 
+uint8_t citypos[] = {4, 4+18*1, 4+18*2, 4+18*3, 4+18*4, 4+18*5, 4+18*6};
+
+uint8_t cursorX;
+uint8_t cursorY;
+uint8_t minx, miny, maxx, maxy;
 
 
 void setup() {
@@ -19,6 +31,12 @@ void setup() {
 #else
   tv.begin(_NTSC, MAX_X, MAX_Y);
 #endif
+
+  if (n.begin(NUNCHUCK_PLAYER_1)) {
+    tv.print("Nunchuck begin error");
+    while(1);
+  }
+
 }
 
 
@@ -52,7 +70,7 @@ void DrawBase(uint8_t shots) {
   uint8_t x;
   uint8_t y;
 
-  for (i=0; i<28; i++) {
+  for (i=0; i<shots; i++) {
     x=citypos[3]+(missilestack[i]&0x0F);
     y=MAX_Y-8+(missilestack[i]>>4);
     tv.set_pixel(x,y, 1);
@@ -60,18 +78,75 @@ void DrawBase(uint8_t shots) {
 }
 
 
+//    n.update();
+//   if (n.button_c())
+//       bool joy_up();
+//        bool joy_down();
+//        bool joy_left();
+//        bool joy_right();
+//        unsigned char joy_x();
+//        unsigned char joy_y();
+//        unsigned char acc_x();
+//        unsigned char acc_y();
+//        unsigned char acc_z();
+        
+void DrawCursor(uint8_t x, uint8_t y) {
+
+  tv.draw_row(y, x-2, x+3, 2);
+  tv.draw_column(x, y-3, y+3, 2);
+  
+}
+
+void WaitForZRelease() {
+  tv.delay_frame(10);
+  do {
+    tv.delay_frame(1);
+    n.update();
+  } while (n.button_z());
+}
+
+
+
+        
+        
 void loop() {
   uint8_t i;
   tv.select_font(font8x8);
   tv.printPGM(3,3,PSTR("Missile Command"));
-  tv.draw_row(0, 0, MAX_X-1, 1);
-  tv.draw_row(MAX_Y-1, 0, MAX_X-1, 1);
-  for (i=0; i<6; i++) DrawCity(i);
-  for (i=0; i<29; i++) {
-    DrawBase(i);
-    tv.delay(250);
+  tv.delay_frame(100);
+  float myx, myy;
+  char buf[4];
+
+
+  cursorX=10;
+  cursorY=10;
+
+  for (;;) {
+    n.update();
+    tv.fill(0);
+    tv.draw_row(0, 0, MAX_X, 1);
+    tv.draw_row(MAX_Y-1, 0, MAX_X, 1);
+    for (i=0; i<6; i++) DrawCity(i);
+    DrawCursor(cursorX, cursorY);
+    myx=n.joy_x();
+    myy=n.joy_y();
+    
+    myx=myx-47;
+    if (myx<0) myx=0;
+    myx=myx*0.85;
+    if (myx>MAX_X-7) myx=MAX_X-7;
+
+    myy=myy-64;
+    if (myy<0) myy=0;
+    myy=myy*0.6;
+    if (myy>MAX_Y-16) myy=MAX_Y-16;
+
+    cursorX=3+myx;
+    cursorY=MAX_Y-12-myy;
+    DrawBase(28);
+    tv.delay_frame(1);
   }
-//  tv.fill(2);
+  
   for (;;);
 }
 
