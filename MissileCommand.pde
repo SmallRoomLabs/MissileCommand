@@ -22,7 +22,13 @@ uint8_t citypos[] = {4, 4+18*1, 4+18*2, 4+18*3, 4+18*4, 4+18*5, 4+18*6};
 
 uint8_t cursorX;
 uint8_t cursorY;
-uint8_t minx, miny, maxx, maxy;
+
+uint8_t explosionX[50];  // X-coordinate of fireball
+uint8_t explosionY[50];  // Y-coordinate of fireball
+uint8_t explosionS[50];  // status/step of fireball sequence
+
+
+uint8_t ballsize[]= {0,3,4,5,6,7,8,9,10,11,10,9,8,7,6,5,4,3,0};
 
 
 void setup() {
@@ -78,24 +84,14 @@ void DrawBase(uint8_t shots) {
 }
 
 
-//    n.update();
-//   if (n.button_c())
-//       bool joy_up();
-//        bool joy_down();
-//        bool joy_left();
-//        bool joy_right();
-//        unsigned char joy_x();
-//        unsigned char joy_y();
-//        unsigned char acc_x();
-//        unsigned char acc_y();
-//        unsigned char acc_z();
         
 void DrawCursor(uint8_t x, uint8_t y) {
-
   tv.draw_row(y, x-2, x+3, 2);
   tv.draw_column(x, y-3, y+3, 2);
-  
 }
+
+
+
 
 void WaitForZRelease() {
   tv.delay_frame(10);
@@ -107,19 +103,40 @@ void WaitForZRelease() {
 
 
 
+void UpdateExplosions() {
+  uint8_t i;
+  uint8_t siz;
+  
+  for (i=0; i<50; i++) {
+    if (explosionS[i]>0) {
+      siz=ballsize[explosionS[i]];
+      if (siz>0) {
+        tv.draw_circle(explosionX[i], explosionY[i], siz, 1);
+        explosionS[i]++;
+      } else {
+        explosionS[i]=0;
+      }
+    }
+  }
+
+}
+
+
+
         
         
 void loop() {
   uint8_t i;
+  float fx, fy;
+  uint8_t noMissiles;
+
   tv.select_font(font8x8);
   tv.printPGM(3,3,PSTR("Missile Command"));
   tv.delay_frame(100);
-  float myx, myy;
-  char buf[4];
-
 
   cursorX=10;
   cursorY=10;
+  noMissiles=28;
 
   for (;;) {
     n.update();
@@ -127,24 +144,40 @@ void loop() {
     tv.draw_row(0, 0, MAX_X, 1);
     tv.draw_row(MAX_Y-1, 0, MAX_X, 1);
     for (i=0; i<6; i++) DrawCity(i);
+
     DrawCursor(cursorX, cursorY);
-    myx=n.joy_x();
-    myy=n.joy_y();
     
-    myx=myx-47;
-    if (myx<0) myx=0;
-    myx=myx*0.85;
-    if (myx>MAX_X-7) myx=MAX_X-7;
+    fx=n.joy_x()-47;
+    if (fx<0) fx=0;
+    fx*=0.85;
+    if (fx>MAX_X-7) fx=MAX_X-7;
 
-    myy=myy-64;
-    if (myy<0) myy=0;
-    myy=myy*0.6;
-    if (myy>MAX_Y-16) myy=MAX_Y-16;
+    fy=n.joy_y()-64;
+    if (fy<0) fy=0;
+    fy*=0.6;
+    if (fy>MAX_Y-16) fy=MAX_Y-16;
 
-    cursorX=3+myx;
-    cursorY=MAX_Y-12-myy;
-    DrawBase(28);
-    tv.delay_frame(1);
+    cursorX=3+fx;
+    cursorY=MAX_Y-12-fy;
+    
+    DrawBase(noMissiles);
+  
+    if (n.button_z()) {
+      uint8_t i;
+      if (noMissiles>0) {
+        for (i=0;i<50 && explosionS[i]>0; i++);
+        if (i<50) {
+          noMissiles--;
+          explosionX[i]=cursorX;
+          explosionY[i]=cursorY;
+          explosionS[i]=1;
+        }
+      }
+    }
+
+    UpdateExplosions();
+
+    tv.delay_frame(2);
   }
   
   for (;;);
