@@ -35,57 +35,28 @@
 #include "bitmaps.h"
 
 TVout tv;
-Nunchuck n;
+Nunchuck nc;
 
 #define TVMODE PAL    // Set to either PAL or NTSC
 
+// Screen size
 #define MAX_X 128
 #define MAX_Y 96
 
-// The heights of the buildings that make up a city
-uint8_t building[]={2,3,5,2,4,2,4,3,2,3,2,1};
+// Offsets & Scaling factors for the nunchuck
+#define NUNCHUCK_HOR_OFFSET 47
+#define NUNCHUCK_HOR_SCALE  0.85
+#define NUNCHUCK_VER_OFFSET 64
+#define NUNCHUCK_VER_SCALE  0.85
 
-// The locations of the cities [0,1,2,4,5,6] and the missile base [3] 
-uint8_t citypos[] = {4, 4+18*1, 4+18*2, 4+18*3, 4+18*4, 4+18*5, 4+18*6};
+#define FULLMISSILEPILE 28  // Number of missiles on the missile base when full
+#define MAXEXPLOSIONS 50    // Maximum number of explosions
+#define MAXMISSILES 3       // Max number of missiles in the air
 
-uint8_t cursorX;
-uint8_t cursorY;
-
-uint8_t explosionX[50];  // X-coordinate of fireball
-uint8_t explosionY[50];  // Y-coordinate of fireball
-uint8_t explosionS[50];  // status/step of fireball sequence
-
-
-uint8_t ballsize[]= {0,3,4,5,6,7,8,9,10,11,10,9,8,7,6,5,4,3,0};
-
-
-void setup() {
-#if TVMODE == PAL
-  tv.begin(_PAL, MAX_X, MAX_Y);
-#else
-  tv.begin(_NTSC, MAX_X, MAX_Y);
-#endif
-
-  if (n.begin(NUNCHUCK_PLAYER_1)) {
-    tv.print("Nunchuck begin error");
-    while(1);
-  }
-
-}
-
-
-
-void DrawCity(uint8_t no) {
-  uint8_t i;
-
-  if (no>2) no++;
-  for (i=0; i<12; i++) {
-    tv.draw_column(citypos[no]+i, MAX_Y-2-building[i], MAX_Y-2, 1);
-  }  
-}
-
-
-
+// Current position of the missiles (X/Y) and target (T)
+uint8_t missileX[MAXMISSILES];
+uint8_t missileY[MAXMISSILES];
+uint8_t missileT[MAXMISSILES]; // Missile target - index to explosionsXYS[] -arrays 
 
 //     0123456789ABCDE 
 //   0 ......X......
@@ -96,10 +67,76 @@ void DrawCity(uint8_t no) {
 //   5 .X.X.X.X.X.X.
 //   6 X.X.X.X.X.X.X
 //
+uint8_t missilestack[FULLMISSILEPILE] = {
+  0x66, 0x64, 0x68, 0x62, 0x6a, 0x60, 0x6c, 0x55, 
+  0x57, 0x53, 0x59, 0x51, 0x5b, 0x46, 0x44, 0x48, 
+  0x42, 0x4a, 0x35, 0x37, 0x33, 0x39, 0x26, 0x24, 
+  0x28, 0x15, 0x17, 0x06};
 
-uint8_t missilestack[] = {0x66, 0x64, 0x68, 0x62, 0x6a, 0x60, 0x6c, 0x55, 0x57, 0x53, 0x59, 0x51, 0x5b, 0x46, 0x44, 0x48, 0x42, 0x4a, 0x35, 0x37, 0x33, 0x39, 0x26, 0x24, 0x28, 0x15, 0x17, 0x06};
+#define CITYWIDTH 12   // Twelve buldings makes up a city
 
-void DrawBase(uint8_t shots) {
+// The heights of the buildings that make up a city
+uint8_t building[CITYWIDTH]={2,3,5,2,4,2,4,3,2,3,2,1};
+
+// The locations of the cities [0,1,2,4,5,6] and the missile base [3] 
+uint8_t citypos[] = {4, 4+18*1, 4+18*2, 4+18*3, 4+18*4, 4+18*5, 4+18*6};
+
+// Current cursor location
+uint8_t cursorX, cursorY;
+
+// Coordinates and Statuses of all fireballs
+uint8_t explosionX[MAXEXPLOSIONS];  // X-coordinate of fireball
+uint8_t explosionY[MAXEXPLOSIONS];  // Y-coordinate of fireball
+uint8_t explosionS[MAXEXPLOSIONS];  // status/step of fireball sequence
+
+// The size of the fireball - as indexed by explosionS[]
+uint8_t ballsize[]= {0,3,4,5,6,7,8,9,10,11,10,9,8,7,6,5,4,3,0};
+
+
+//
+// Initialize system
+//
+void setup() {
+  // Initialize TVOut
+  #if TVMODE == PAL
+    tv.begin(_PAL, MAX_X, MAX_Y);
+  #else
+    tv.begin(_NTSC, MAX_X, MAX_Y);
+  #endif
+
+  tv.select_font(font4x6);
+
+  // Try to initialize nunchucks
+  if (nc.begin(NUNCHUCK_PLAYER_1)) {
+    tv.printPGM(10, 10, PSTR("Nunchuck error."));
+    tv.printPGM(10, 20, PSTR("Please connect & reset."));
+    for(;;);
+  }
+
+}
+
+
+
+
+//
+// Draw a city on the screen - cityNo from 0 to 5
+//
+void DrawCity(uint8_t cityNo) {
+  uint8_t i;
+
+  if (cityNo>2) cityNo++;  // Offset after three cities to make space for base
+  for (i=0; i<CITYWIDTH; i++) {
+    tv.draw_column(citypos[cityNo]+i, MAX_Y-2-building[i], MAX_Y-2, 1);
+  }  
+}
+
+
+
+
+//
+// Draw the missile base showing the number of missiles left
+//
+void DrawMissileBase(uint8_t shots) {
   uint8_t i;
   uint8_t x;
   uint8_t y;
@@ -113,6 +150,9 @@ void DrawBase(uint8_t shots) {
 
 
         
+//
+// Draw the cursor/crosshairs on the screen
+//
 void DrawCursor(uint8_t x, uint8_t y) {
   tv.draw_row(y, x-2, x+3, 2);
   tv.draw_column(x, y-3, y+3, 2);
@@ -121,16 +161,10 @@ void DrawCursor(uint8_t x, uint8_t y) {
 
 
 
-void WaitForZRelease() {
-  tv.delay_frame(10);
-  do {
-    tv.delay_frame(1);
-    n.update();
-  } while (n.button_z());
-}
 
-
-
+//
+// Update and draw all the active fireballs
+//
 void UpdateExplosions() {
   uint8_t i;
   uint8_t siz;
@@ -156,53 +190,64 @@ void UpdateExplosions() {
 void loop() {
   uint8_t i;
   float fx, fy;
-  uint8_t noMissiles;
+  uint8_t missilesLeft;
+  boolean zIsPressed=false;
 
   tv.bitmap(10, 10, bitmap_Missile);
   tv.bitmap(0, 30, bitmap_Command);
 
-  tv.select_font(font4x6);
   tv.delay_frame(100);
 
   cursorX=10;
   cursorY=10;
-  noMissiles=28;
+  missilesLeft=FULLMISSILEPILE;
 
   for (;;) {
-    n.update();
+    nc.update();
     tv.fill(0);
     tv.draw_row(0, 0, MAX_X, 1);
     tv.draw_row(MAX_Y-1, 0, MAX_X, 1);
     for (i=0; i<6; i++) DrawCity(i);
 
+    // Remove cursor by XOR'ing it from screen
     DrawCursor(cursorX, cursorY);
     
-    fx=n.joy_x()-47;
+    // Calculate new position of the crosshair/cursor
+    // Offset & scale the posistions to the entrire screen, 
+    // including the corners, can be reached with the nunchuck
+    // controller. 
+    fx=nc.joy_x()-NUNCHUCK_HOR_OFFSET;
     if (fx<0) fx=0;
-    fx*=0.85;
+    fx*=NUNCHUCK_HOR_SCALE;
     if (fx>MAX_X-7) fx=MAX_X-7;
 
-    fy=n.joy_y()-64;
+    fy=nc.joy_y()-NUNCHUCK_VER_OFFSET;
     if (fy<0) fy=0;
-    fy*=0.6;
+    fy*=NUNCHUCK_VER_SCALE;
     if (fy>MAX_Y-16) fy=MAX_Y-16;
 
     cursorX=3+fx;
-    cursorY=MAX_Y-12-fy;
+    cursorY=MAX_Y-12-fy;  // Y-axis is inverted from the Nunchucks
     
-    DrawBase(noMissiles);
+    DrawMissileBase(missilesLeft);
   
-    if (n.button_z()) {
-      uint8_t i;
-      if (noMissiles>0) {
-        for (i=0;i<50 && explosionS[i]>0; i++);
-        if (i<50) {
-          noMissiles--;
-          explosionX[i]=cursorX;
-          explosionY[i]=cursorY;
-          explosionS[i]=1;
+    // Fire a missile if button is pressed
+    if (nc.button_z()) {
+      if (!zIsPressed) { // No Autorepeat
+        zIsPressed=true;
+        if (missilesLeft>0) {
+          // Find a free slot for the explosion
+          for (i=0;i<MAXEXPLOSIONS && explosionS[i]>0; i++);
+          if (i<MAXEXPLOSIONS) {
+            missilesLeft--;
+            explosionX[i]=cursorX;
+            explosionY[i]=cursorY;
+            explosionS[i]=1;
+          }
         }
       }
+    } else {
+      zIsPressed=false;
     }
 
     UpdateExplosions();
@@ -210,6 +255,5 @@ void loop() {
     tv.delay_frame(2);
   }
   
-  for (;;);
 }
 
