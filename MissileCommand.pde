@@ -1,10 +1,38 @@
+/*
+ *                      _         _ _      
+ *                /\/\ (_)___ ___(_) | ___ 
+ *               /    \| / __/ __| | |/ _ \
+ *              / /\/\ \ \__ \__ \ | |  __/
+ *      ___     \/    \/_|___/___/_|_|\___|          _
+ *     / __\___  _ __ ___  _ __ ___   __ _ _ __   __| |
+ *    / /  / _ \| '_ ` _ \| '_ ` _ \ / _` | '_ \ / _` |
+ *   / /__| (_) | | | | | | | | | | | (_| | | | | (_| |
+ *   \____/\___/|_| |_| |_|_| |_| |_|\__,_|_| |_|\__,_|
+ *  
+ * A simple implementation of the classic "Missile Command"
+ * arcade game to be used with the Video Game Shield by Layne & Wayne
+ * 
+ * This game is based on the Atari 2600 version of the game with six
+ * cities to defend and a single missile base. 
+ *
+ * The bitmaps are converted from .bmp to c-source using image2code
+ * that cand be found at http://sourceforge.net/projects/image2code/
+ *
+ * This software is licensed under the Creative Commons Attribution-
+ * ShareAlike 3.0 Unported License.
+ * http://creativecommons.org/licenses/by-sa/3.0/
+ *
+ * Copyright (c) 2011 Mats Engstrom (mats@smallroomlabs.com)
+ *
+ * 
+ */
+ 
 #include <TVout.h>
 #include <fontALL.h>
 #include <avr/pgmspace.h>
 #include <i2cmaster.h>
 #include <nunchuck.h>
-
-
+#include "bitmaps.h"
 
 TVout tv;
 Nunchuck n;
@@ -130,8 +158,10 @@ void loop() {
   float fx, fy;
   uint8_t noMissiles;
 
-  tv.select_font(font8x8);
-  tv.printPGM(3,3,PSTR("Missile Command"));
+  tv.bitmap(10, 10, bitmap_Missile);
+  tv.bitmap(0, 30, bitmap_Command);
+
+  tv.select_font(font4x6);
   tv.delay_frame(100);
 
   cursorX=10;
