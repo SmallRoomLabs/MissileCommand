@@ -44,6 +44,8 @@ Nunchuck nc;
 #define MAX_X 128
 #define MAX_Y 96
 
+#define FREE 255 // Magic value indicating usused slot
+
 // Offsets & Scaling factors for the nunchuck
 #define NUNCHUCK_HOR_OFFSET 47
 #define NUNCHUCK_HOR_SCALE  0.85
@@ -58,6 +60,8 @@ Nunchuck nc;
 uint8_t missileX[MAXMISSILES];
 uint8_t missileY[MAXMISSILES];
 uint8_t missileT[MAXMISSILES]; // Missile target - index to explosionsXYS[] -arrays 
+uint8_t missileL[MAXMISSILES];
+
 
 //     0123456789ABCDE 
 //   0 ......X......
@@ -91,7 +95,7 @@ uint8_t explosionY[MAXEXPLOSIONS];  // Y-coordinate of fireball
 uint8_t explosionS[MAXEXPLOSIONS];  // status/step of fireball sequence
 
 // The size of the fireball - as indexed by explosionS[]
-uint8_t ballsize[]= {0,3,4,5,6,7,8,9,10,11,10,9,8,7,6,5,4,3,0};
+uint8_t ballsize[]= {0,1,3,4,5,6,7,8,9,10,11,10,9,8,7,6,5,4,3,0};
 
 
 //
@@ -175,7 +179,7 @@ void UpdateExplosions() {
   uint8_t siz;
   
   for (i=0; i<50; i++) {
-    if (explosionS[i]>0) {
+    if (explosionS[i]>1) {
       siz=ballsize[explosionS[i]];
       if (siz>0) {
         tv.draw_circle(explosionX[i], explosionY[i], siz, 0, 1);
@@ -258,6 +262,80 @@ void AttractMode() {
 }
 
 
+
+
+
+
+
+
+
+boolean Bresenham(uint8_t len, byte x1, byte y1, unsigned char x2, unsigned char y2, unsigned char color ) {
+    char deltax = abs(x2 - x1);        // The difference between the x's
+    char deltay = abs(y2 - y1);        // The difference between the y's
+    char x = x1;                       // Start x off at the first pixel
+    char y = y1;                       // Start y off at the first pixel
+    char xinc1, xinc2, yinc1, yinc2, den, num, numadd, numpixels, curpixel;
+
+    if (x2 >= x1) {                // The x-values are increasing
+        xinc1 = 1;
+        xinc2 = 1;
+    }  
+    else {                          // The x-values are decreasing
+        xinc1 = -1;
+        xinc2 = -1;
+    }
+
+    if (y2 >= y1)                 // The y-values are increasing
+    {
+        yinc1 = 1;
+        yinc2 = 1;
+    }
+    else                          // The y-values are decreasing
+    {
+        yinc1 = -1;
+        yinc2 = -1;
+    }
+
+    if (deltax >= deltay)         // There is at least one x-value for every y-value
+    {
+        xinc1 = 0;                  // Don't change the x when numerator >= denominator
+        yinc2 = 0;                  // Don't change the y for every iteration
+        den = deltax;
+        num = deltax / 2;
+        numadd = deltay;
+        numpixels = deltax;         // There are more x-values than y-values
+    }
+    else                          // There is at least one y-value for every x-value
+    {
+        xinc2 = 0;                  // Don't change the x for every iteration
+        yinc1 = 0;                  // Don't change the y when numerator >= denominator
+        den = deltay;
+        num = deltay / 2;
+        numadd = deltax;
+        numpixels = deltay;         // There are more y-values than x-values
+    }
+
+    for (curpixel = 0; curpixel <= numpixels ; curpixel++)
+    {
+        tv.set_pixel(x, y, color);             // Draw the current pixel
+        num += numadd;              // Increase the numerator by the top of the fraction
+        if (num >= den)             // Check if numerator >= denominator
+        {
+            num -= den;               // Calculate the new numerator value
+            x += xinc1;               // Change the x as appropriate
+            y += yinc1;               // Change the y as appropriate
+        }
+        x += xinc2;                 // Change the x as appropriate
+        y += yinc2;                 // Change the y as appropriate
+        if (curpixel>len) break;
+    }
+  return (curpixel>numpixels);
+}
+
+
+
+
+
         
         
 void loop() {
@@ -271,6 +349,10 @@ void loop() {
   cursorX=10;
   cursorY=10;
   missilesLeft=FULLMISSILEPILE;
+  for (i=0; i<MAXMISSILES; i++) {
+    missileT[i]=FREE;
+  }
+
 
   for (;;) {
     nc.update();
@@ -306,13 +388,24 @@ void loop() {
       if (!zIsPressed) { // No Autorepeat
         zIsPressed=true;
         if (missilesLeft>0) {
-          // Find a free slot for the explosion
-          for (i=0;i<MAXEXPLOSIONS && explosionS[i]>0; i++);
-          if (i<MAXEXPLOSIONS) {
-            missilesLeft--;
-            explosionX[i]=cursorX;
-            explosionY[i]=cursorY;
-            explosionS[i]=1;
+          // Find free slot for missile
+          uint8_t m;
+          for (m=0; m<MAXMISSILES; m++) {
+            if (missileT[m]==FREE) break;
+          }
+          if (m<MAXMISSILES) {
+            // Find a free slot for the explosion
+            for (i=0;i<MAXEXPLOSIONS && explosionS[i]>0; i++);
+            if (i<MAXEXPLOSIONS) {
+              missilesLeft--;
+              explosionX[i]=cursorX;
+              explosionY[i]=cursorY;
+              explosionS[i]=1;
+              missileX[m]=MAX_X/2;
+              missileY[m]=MAX_Y-7;
+              missileT[m]=i;
+              missileL[m]=1;
+            }
           }
         }
       }
@@ -320,9 +413,23 @@ void loop() {
       zIsPressed=false;
     }
 
+  for (i=0; i<MAXMISSILES; i++) {
+    if (missileT[i]!=FREE ) {
+      if (Bresenham(missileL[i],(uint8_t)missileX[i], (uint8_t)missileY[i], explosionX[missileT[i]], explosionY[missileT[i]], 1)) {
+        explosionS[missileT[i]]=2;
+        missileX[i]=0;
+        missileY[i]=0;
+        missileT[i]=FREE;
+      } else {
+        missileL[i]+=2;
+      }      
+    }
+  }    
+
+
     UpdateExplosions();
 
-    tv.delay_frame(2);
+    tv.delay_frame(1);
   }
   
 }
