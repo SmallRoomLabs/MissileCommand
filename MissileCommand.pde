@@ -11,12 +11,13 @@
  *  
  * A simple implementation of the classic "Missile Command"
  * arcade game to be used with the Video Game Shield by Layne & Wayne
+ * http://www.wayneandlayne.com/projects/video-game-shield/
  * 
  * This game is based on the Atari 2600 version of the game with six
  * cities to defend and a single missile base. 
  *
- * The bitmaps are converted from .bmp to c-source using image2code
- * that cand be found at http://sourceforge.net/projects/image2code/
+ * The bitmaps used in this game are converted from .bmp to c-source
+ *  using image2code. http://sourceforge.net/projects/image2code/
  *
  * This software is licensed under the Creative Commons Attribution-
  * ShareAlike 3.0 Unported License.
@@ -113,6 +114,7 @@ void setup() {
     for(;;);
   }
 
+
 }
 
 
@@ -140,11 +142,14 @@ void DrawMissileBase(uint8_t shots) {
   uint8_t i;
   uint8_t x;
   uint8_t y;
+  uint8_t c;
 
-  for (i=0; i<shots; i++) {
+  for (i=0; i<FULLMISSILEPILE; i++) {
+    c=0; 
+    if (i<shots) c=1;
     x=citypos[3]+(missilestack[i]&0x0F);
     y=MAX_Y-8+(missilestack[i]>>4);
-    tv.set_pixel(x,y, 1);
+    tv.set_pixel(x,y, c);
   }
 }
 
@@ -173,16 +178,84 @@ void UpdateExplosions() {
     if (explosionS[i]>0) {
       siz=ballsize[explosionS[i]];
       if (siz>0) {
-        tv.draw_circle(explosionX[i], explosionY[i], siz, 1);
+        tv.draw_circle(explosionX[i], explosionY[i], siz, 0, 1);
         explosionS[i]++;
       } else {
         explosionS[i]=0;
+        tv.draw_circle(explosionX[i], explosionY[i], 11, 0, 0);
       }
     }
   }
 
 }
 
+
+void AttractMode() {
+  uint8_t missilesLeft;
+  boolean pressed=false;
+  uint8_t i;
+  uint8_t targetX, targetY;
+
+  tv.fill(0);
+
+  tv.draw_row(0, 0, MAX_X, 1);
+  tv.draw_row(MAX_Y-1, 0, MAX_X, 1);
+  for (i=0; i<6; i++) DrawCity(i);
+  
+  targetX=random(3,125);
+  targetY=random(15,55);
+  cursorX=random(3,115);
+  cursorY=random(5,55);
+  DrawCursor(cursorX, cursorY);
+  
+  do {
+    missilesLeft=28;
+    tv.bitmap(23, 10, bitmap_Missile);
+    tv.bitmap(3, 30, bitmap_Command);
+
+    DrawMissileBase(missilesLeft);
+
+    do {
+      DrawCursor(cursorX, cursorY);
+      if ((cursorX==targetX) && (cursorY==targetY)) {
+        if (missilesLeft>0) {
+          targetX=random(3,125);
+          targetY=random(15,55);
+          // Find a free slot for the explosion
+          for (i=0;i<MAXEXPLOSIONS && explosionS[i]>0; i++);
+          if (i<MAXEXPLOSIONS) {
+            missilesLeft--;
+            DrawMissileBase(missilesLeft);
+            explosionX[i]=cursorX;
+            explosionY[i]=cursorY;
+            explosionS[i]=1;
+          }
+        }
+      }
+
+      if (cursorX<targetX) cursorX++;
+      if (cursorY<targetY) cursorY++;
+      if (cursorX>targetX) cursorX--;
+      if (cursorY>targetY) cursorY--;
+      UpdateExplosions();
+      DrawCursor(cursorX, cursorY);
+
+      tv.delay(20);
+      nc.update();
+      if (nc.button_z()) pressed=true;
+    } while ((!pressed) && (missilesLeft>0));
+
+  } while (!pressed);
+
+  tv.fill(0);
+  tv.draw_row(0, 0, MAX_X, 1);
+  tv.draw_row(MAX_Y-1, 0, MAX_X, 1);
+  do {
+    tv.delay(20);
+    nc.update();
+  } while (nc.button_z());
+    
+}
 
 
         
@@ -193,10 +266,7 @@ void loop() {
   uint8_t missilesLeft;
   boolean zIsPressed=false;
 
-  tv.bitmap(10, 10, bitmap_Missile);
-  tv.bitmap(0, 30, bitmap_Command);
-
-  tv.delay_frame(100);
+  AttractMode();
 
   cursorX=10;
   cursorY=10;
