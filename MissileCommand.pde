@@ -28,15 +28,19 @@
  * 
  */
  
-#include <TVout.h>
-#include <fontALL.h>
 #include <avr/pgmspace.h>
 #include <i2cmaster.h>
 #include <nunchuck.h>
+#include <TVout.h>
+#include <fontALL.h>
 #include "bitmaps.h"
 
 TVout tv;
 Nunchuck nc;
+
+// For accessing the screen memory directly using *display.screen
+extern TVout_vid display;
+
 
 #define TVMODE PAL    // Set to either PAL or NTSC
 
@@ -120,6 +124,136 @@ void setup() {
 
 
 }
+/* Fill a row from one point to another
+ *
+ * Argument:
+ *	line:
+ *		The row that fill will be performed on.
+ *	x0:
+ *		edge 0 of the fill.
+ *	x1:
+ *		edge 1 of the fill.
+ *	c:
+ *		the color of the fill.
+ *		(see color note at the top of this file)
+*/
+void draw_row_clipped(uint8_t line, uint16_t x0, uint16_t x1, uint8_t c) {
+	uint8_t lbit, rbit;
+	
+
+        if (line>=MAX_Y) return;
+        
+        if ((x0>MAX_X) && (x1>MAX_X)) return;
+        if (x0>MAX_X) x0=0;
+        if (x1>MAX_X) x1=MAX_X-1;
+        
+        if (x0 == x1) return;
+
+	if (x0 > x1) {
+		lbit = x0;
+		x0 = x1;
+		x1 = lbit;
+	}
+
+	lbit = 0xff >> (x0&7);
+	x0 = x0/8 + display.hres*line;
+	rbit = ~(0xff >> (x1&7));
+	x1 = x1/8 + display.hres*line;
+	if (x0 == x1) {
+		lbit = lbit & rbit;
+		rbit = 0;
+	}
+	if (c == WHITE) {
+		display.screen[x0++] |= lbit;
+		while (x0 < x1) display.screen[x0++] = 0xff;
+		display.screen[x0] |= rbit;
+	}
+	else if (c == BLACK) {
+		display.screen[x0++] &= ~lbit;
+		while (x0 < x1) display.screen[x0++] = 0;
+		display.screen[x0] &= ~rbit;
+	}
+	else if (c == INVERT) {
+		display.screen[x0++] ^= lbit;
+		while (x0 < x1) display.screen[x0++] ^= 0xff;
+		display.screen[x0] ^= rbit;
+	}
+} // end of draw_row_clipped
+
+
+
+/* 
+ * Draw a circle given a coordinate x,y and radius both filled and non filled.
+ *
+ * This code is copied from the TVout -library and modified to clip the cicle
+ * at the borders of the screen.
+ *
+ * Arguments:
+ * 	x0:
+ *		The x coordinate of the center of the circle.
+ *	y0:
+ *		The y coordinate of the center of the circle.
+ *	radius:
+ *		The radius of the circle.
+ *	c:
+ *		The color of the circle.
+ *		(see color note at the top of this file)
+ *	fc:
+ *		The color to fill the circle.
+ *		(see color note at the top of this file)
+ *		defualt  =-1 (do not fill)
+ */
+void draw_circle_clipped(uint8_t x0, uint8_t y0, uint8_t radius, char c, char fc) {
+
+	int f = 1 - radius;
+	int ddF_x = 1;
+	int	ddF_y = -2 * radius;
+	int x = 0;
+	int y = radius;
+	uint8_t pyy = y,pyx = x;
+	
+	draw_row_clipped(y0,x0-radius,x0+radius,fc);
+        	
+	while(x < y) {
+		if(f >= 0) {
+			y--;
+			ddF_y += 2;
+			f += ddF_y;
+		}
+		x++;
+		ddF_x += 2;
+		f += ddF_x;
+		
+		//there is a fill color
+		if (fc != -1) {
+			//prevent double draws on the same rows
+			if (pyy != y) {
+				draw_row_clipped(y0+y,x0-x,x0+x,fc);
+				draw_row_clipped(y0-y,x0-x,x0+x,fc);
+			}
+			if (pyx != x && x != y) {
+				draw_row_clipped(y0+x,x0-y,x0+y,fc);
+				draw_row_clipped(y0-x,x0-y,x0+y,fc);
+			}
+			pyy = y;
+			pyx = x;
+		}
+//		sp(x0 + x, y0 + y,c);
+//		sp(x0 - x, y0 + y,c);
+//		sp(x0 + x, y0 - y,c);
+//		sp(x0 - x, y0 - y,c);
+//		sp(x0 + y, y0 + x,c);
+//		sp(x0 - y, y0 + x,c);
+//		sp(x0 + y, y0 - x,c);
+//		sp(x0 - y, y0 - x,c);
+	}
+} // end of draw_circle_clipped
+
+
+
+
+
+
 
 
 
@@ -182,11 +316,11 @@ void UpdateExplosions() {
     if (explosionS[i]>1) {
       siz=ballsize[explosionS[i]];
       if (siz>0) {
-        tv.draw_circle(explosionX[i], explosionY[i], siz, 0, 1);
+        draw_circle_clipped(explosionX[i], explosionY[i], siz, 0, 1);
         explosionS[i]++;
       } else {
         explosionS[i]=0;
-        tv.draw_circle(explosionX[i], explosionY[i], 11, 0, 0);
+        draw_circle_clipped(explosionX[i], explosionY[i], 11, 0, 0);
       }
     }
   }
@@ -243,7 +377,7 @@ void AttractMode() {
       if (cursorY>targetY) cursorY--;
       UpdateExplosions();
       DrawCursor(cursorX, cursorY);
-
+      
       tv.delay(20);
       nc.update();
       if (nc.button_z()) pressed=true;
@@ -260,78 +394,6 @@ void AttractMode() {
   } while (nc.button_z());
     
 }
-
-
-
-
-
-
-
-
-
-boolean Bresenham(uint8_t len, byte x1, byte y1, unsigned char x2, unsigned char y2, unsigned char color ) {
-    char deltax = abs(x2 - x1);        // The difference between the x's
-    char deltay = abs(y2 - y1);        // The difference between the y's
-    char x = x1;                       // Start x off at the first pixel
-    char y = y1;                       // Start y off at the first pixel
-    char xinc1, xinc2, yinc1, yinc2, den, num, numadd, numpixels, curpixel;
-
-    if (x2 >= x1) {                // The x-values are increasing
-        xinc1 = 1;
-        xinc2 = 1;
-    }  
-    else {                          // The x-values are decreasing
-        xinc1 = -1;
-        xinc2 = -1;
-    }
-
-    if (y2 >= y1)                 // The y-values are increasing
-    {
-        yinc1 = 1;
-        yinc2 = 1;
-    }
-    else                          // The y-values are decreasing
-    {
-        yinc1 = -1;
-        yinc2 = -1;
-    }
-
-    if (deltax >= deltay)         // There is at least one x-value for every y-value
-    {
-        xinc1 = 0;                  // Don't change the x when numerator >= denominator
-        yinc2 = 0;                  // Don't change the y for every iteration
-        den = deltax;
-        num = deltax / 2;
-        numadd = deltay;
-        numpixels = deltax;         // There are more x-values than y-values
-    }
-    else                          // There is at least one y-value for every x-value
-    {
-        xinc2 = 0;                  // Don't change the x for every iteration
-        yinc1 = 0;                  // Don't change the y when numerator >= denominator
-        den = deltay;
-        num = deltay / 2;
-        numadd = deltax;
-        numpixels = deltay;         // There are more y-values than x-values
-    }
-
-    for (curpixel = 0; curpixel <= numpixels ; curpixel++)
-    {
-        tv.set_pixel(x, y, color);             // Draw the current pixel
-        num += numadd;              // Increase the numerator by the top of the fraction
-        if (num >= den)             // Check if numerator >= denominator
-        {
-            num -= den;               // Calculate the new numerator value
-            x += xinc1;               // Change the x as appropriate
-            y += yinc1;               // Change the y as appropriate
-        }
-        x += xinc2;                 // Change the x as appropriate
-        y += yinc2;                 // Change the y as appropriate
-        if (curpixel>len) break;
-    }
-  return (curpixel>numpixels);
-}
-
 
 
 
@@ -380,6 +442,12 @@ void loop() {
 
     cursorX=3+fx;
     cursorY=MAX_Y-12-fy;  // Y-axis is inverted from the Nunchucks
+    char buf[5];
+    sprintf(buf,"%d",cursorX);
+    tv.print(10,10,buf);
+    sprintf(buf,"%d",cursorY);
+    tv.print(10,20,buf);
+
     
     DrawMissileBase(missilesLeft);
   
@@ -415,7 +483,7 @@ void loop() {
 
   for (i=0; i<MAXMISSILES; i++) {
     if (missileT[i]!=FREE ) {
-      if (Bresenham(missileL[i],(uint8_t)missileX[i], (uint8_t)missileY[i], explosionX[missileT[i]], explosionY[missileT[i]], 1)) {
+      if (tv.draw_line(missileX[i], missileY[i], explosionX[missileT[i]], explosionY[missileT[i]], 1, missileL[i])) {
         explosionS[missileT[i]]=2;
         missileX[i]=0;
         missileY[i]=0;
